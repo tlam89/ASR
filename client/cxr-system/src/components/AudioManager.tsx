@@ -1,7 +1,7 @@
-import React, { JSX, useState } from "react";
+import React, { JSX, useState, useEffect } from "react";
 // import axios from "axios";
 import Modal from "./modal/Modal.tsx";
-import { TranscribeButton } from "../utils/TranscribeButton.tsx";
+// import { TranscribeButton } from "../utils/TranscribeButton.tsx";
 import Constants from "../utils/Constants.ts";
 import { Transcriber } from "../hooks/useTranscriber.ts";
 import AudioRecorder from "./AudioRecorder";
@@ -123,7 +123,11 @@ export enum AudioSource {
     RECORDING = "RECORDING",
 }
 
-export function AudioManager(props: { transcriber: Transcriber, whisperListener: (text: string) => void}) {
+export function AudioManager(props: {
+    whisperListener: (text: string | null) => void}
+) {
+    const [isTranscribing, setIsTranscribing] = useState(false);
+    const [transcription, setTranscription] = useState<string | null>(null);
     const [progress, setProgress] = useState<number | undefined>(undefined);
     const [audioData, setAudioData] = useState<
         | {
@@ -135,7 +139,7 @@ export function AudioManager(props: { transcriber: Transcriber, whisperListener:
         | undefined
     >(undefined);
 
-    const isAudioLoading = progress !== undefined;
+    // const isAudioLoading = progress !== undefined;
 
     const resetAudio = () => {
         setAudioData(undefined);
@@ -156,14 +160,6 @@ export function AudioManager(props: { transcriber: Transcriber, whisperListener:
             });
             const arrayBuffer = fileReader.result as ArrayBuffer;
             const decoded = await audioCTX.decodeAudioData(arrayBuffer);
-            const whisperResponse = await fetch('http://192.168.1.26:6004/asr/transcribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/octet-stream' },
-                body: arrayBuffer
-              });
-            const text = await whisperResponse.text();
-            props.whisperListener(text);
-            console.log(text);
             setProgress(undefined);
             setAudioData({
                 buffer: decoded,
@@ -171,6 +167,7 @@ export function AudioManager(props: { transcriber: Transcriber, whisperListener:
                 source: AudioSource.RECORDING,
                 mimeType: data.type,
             });
+            await sendAudio(data);
         };
         fileReader.readAsArrayBuffer(data);
     };
@@ -178,6 +175,38 @@ export function AudioManager(props: { transcriber: Transcriber, whisperListener:
     // const handleTranscriber = async (e) => {
     //     setAudioData(undefined);
     // };
+
+    const sendAudio = async (blob: Blob) => {
+        setIsTranscribing(true);
+        const formData = new FormData();
+        formData.append('file', blob, 'recording.wav'); // Adjust filename based on blob.type
+
+        try {
+            const response = await fetch('http://localhost:6004/asr/transcribe', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            setTranscription(data.transcription);
+            
+        } catch (error) {
+            console.error('Error sending audio to FastAPI:', error);
+            setTranscription('Transcription failed');
+        } finally {
+            setIsTranscribing(false);
+        }
+    };
+
+    useEffect(() => {
+        if (transcription) {
+            props.whisperListener(transcription);
+        }    
+    }, [transcription]);
 
     return (
         <>
@@ -187,7 +216,6 @@ export function AudioManager(props: { transcriber: Transcriber, whisperListener:
                         <RecordTile
                             icon={<MicrophoneIcon />}
                             setAudioData={(e) => {
-                                props.transcriber.onInputChange();
                                 setAudioFromRecording(e);
                             }}
                         />
@@ -199,42 +227,6 @@ export function AudioManager(props: { transcriber: Transcriber, whisperListener:
                     />
                 } */}
             </div>
-            {audioData && (
-                <>
-                    {/* <AudioPlayer
-                        audioUrl={audioData.url}
-                        mimeType={audioData.mimeType}
-                    /> */}
-
-                    <div className='relative w-full flex justify-center items-center'>
-                        <TranscribeButton
-                            onClick={() => {
-                                // handleTranscriber();
-                            }}
-                            isModelLoading={props.transcriber.isModelLoading}
-                            // isAudioLoading ||
-                            isTranscribing={props.transcriber.isBusy}
-                        />
-
-                        <SettingsTile
-                            className='absolute right-4'
-                            transcriber={props.transcriber}
-                            icon={<SettingsIcon />}
-                        />
-                    </div>
-                    {props.transcriber.progressItems.length > 0 && (
-                        <div className='relative z-10 p-4 w-full'>
-                            <label>
-                                Loading model files... (only run once)
-                            </label>
-                            {props.transcriber.progressItems.map((data: { file: React.Key | null | undefined; }) => (
-                                <div key={data.file}>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </>
-            )}
         </>
     );
 }
@@ -444,9 +436,10 @@ function RecordModal(props: {
     onClose: () => void;
 }) {
     const [audioBlob, setAudioBlob] = useState<Blob>();
+    
+    const onRecordingComplete = (data: Blob) => {
+        setAudioBlob(data);
 
-    const onRecordingComplete = (blob: Blob) => {
-        setAudioBlob(blob);
     };
 
     const onSubmit = () => {
@@ -494,24 +487,6 @@ function Tile(props: {
                 </div>
             )}
         </button>
-    );
-}
-
-function FolderIcon() {
-    return (
-        <svg
-            xmlns='http://www.w3.org/2000/svg'
-            fill='none'
-            viewBox='0 0 24 24'
-            strokeWidth='1.5'
-            stroke='currentColor'
-        >
-            <path
-                strokeLinecap='round'
-                strokeLinejoin='round'
-                d='M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776'
-            />
-        </svg>
     );
 }
 

@@ -23,8 +23,6 @@ export default function AudioRecorder(props: {
     onRecordingComplete: (blob: Blob) => void;
 }) {
     const [recording, setRecording] = useState(false);
-    const [transcription, setTranscription] = useState<string | null>(null);
-    const [isTranscribing, setIsTranscribing] = useState(false);
     const [duration, setDuration] = useState(0);
     const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
 
@@ -110,37 +108,6 @@ export default function AudioRecorder(props: {
             }
         };
     }, [recording]);
-
-    const sendAudio = async (blob: Blob) => {
-        setIsTranscribing(true);
-        const formData = new FormData();
-        formData.append('file', blob, 'recording.wav'); // Adjust filename based on blob.type
-
-        try {
-            const response = await fetch('http://localhost:8000/transcribe', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            setTranscription(data.transcription);
-        } catch (error) {
-            console.error('Error sending audio to FastAPI:', error);
-            setTranscription('Transcription failed');
-        } finally {
-            setIsTranscribing(false);
-        }
-    };
-
-    useEffect(() => {
-        if (recordedBlob) {
-            sendAudio(recordedBlob);
-        }
-    }, [recordedBlob]);
 
     const handleToggleRecording = () => {
         if (recording) {
